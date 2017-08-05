@@ -463,8 +463,14 @@ CSpaceObject *CPlayerShipController::FindDockTarget (void)
 				//	Skip if this station does not have a dock screen that we
 				//	can use. It is OK to use the full (expensive) check because
 				//	we've already weeded out most objects.
+				//
+				//	If the station is an enemy, then let it through because we
+				//	want the player to get a "docking denied" message. This is safe
+				//	because (a) we only check stations with ports and (b) we 
+				//	later do a full check to make sure the station has docking
+				//	screens.
 
-				if (!pObj->SupportsDocking(true))
+				if (!pObj->IsAngryAt(m_pShip) && !pObj->SupportsDocking(true))
 					continue;
 
 				//	If the station is inside the dock distance, check
@@ -829,6 +835,7 @@ void CPlayerShipController::InitTargetList (TargetTypes iTargetType, bool bUpdat
 				&& pObj->CanBeHit()
 				&& !pObj->IsDestroyed()
                 && (pObj->GetCategory() == CSpaceObject::catShip || pObj->GetCategory() == CSpaceObject::catStation)
+				&& !pObj->IsAttached()
 				&& pObj != m_pShip)
 			{
 			bool bInList = false;
@@ -925,6 +932,7 @@ void CPlayerShipController::InsuranceClaim (void)
 	//	Place the ship back in the system
 
 	m_pShip->AddToSystem(pSystem);
+	m_pShip->OnNewSystem(pSystem);
 
 	//	Empty out the wreck
 
@@ -1223,6 +1231,10 @@ void CPlayerShipController::OnDeviceStatus (CInstalledDevice *pDev, CDeviceClass
 
 		case CDeviceClass::failDeviceOverheat:
 			m_pTrans->DisplayMessage(strCapitalize(strPatternSubst(CONSTLIT("%s damaged by overheating"), pDev->GetClass()->GetName())));
+			break;
+
+		case CDeviceClass::failDeviceDisabledByOverheat:
+			m_pTrans->DisplayMessage(strCapitalize(strPatternSubst(CONSTLIT("%s disabled by overheating"), pDev->GetClass()->GetName())));
 			break;
 		}
 	}

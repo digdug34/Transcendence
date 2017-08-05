@@ -29,11 +29,18 @@
 			<OnCreate>
 				(block (
 					(playerLevel (korGetPlayerLevel))
-					dockedFreighters destList freighterObj destObj
-					)
-					; Filter down to the list of freighters that the player is
-					; qualified to escort (and that she hasn't already declined)
-					(setq dockedFreighters
+					
+					;	If passed in, we create a mission for this freighter
+					
+					(freighterObj (@ gData 'freighterObj))
+					
+					;	Otherwise, we generate a list of docked freighters so we
+					;	can pick a random one.
+					;
+					;	We filter down to the list of freighters that the player is
+					;	qualified to escort (and that she hasn't already declined)
+					
+					(dockedFreighters
 						(filter
 							(sysFindObject aOwnerObj "sHZ O:docked; +commonwealth; +freighter;")
 							theFreighter
@@ -41,16 +48,18 @@
 								(not (objGetObjRefData theFreighter "korolovDest"))
 								(not (objGetData theFreighter "korolovPlayerEscort"))
 								(geq playerLevel (objGetStaticData theFreighter "korolovMinLevel"))
+								(geq (shpGetMaxSpeed gPlayerShip) (+ (shpGetMaxSpeed theFreighter) 2))
 								)
 							)
 						)
-
-					; Get the list of all stations that we might visit. Include stargates twice
-					; so thay they have more chances to be chosen
-					(setq destList
+					
+					;	Get the list of all stations that we might visit. Include stargates twice
+					;	so thay they have more chances to be chosen
+					
+					(destList
 						(filter
 							(append
-								(sysFindObject aOwnerObj "TAF +populated; -occupation; -uncharted;")
+								(sysFindObject aOwnerObj "TAF +populated; -occupation; -uncharted; -outlaws;")
 								(sysFindObject aOwnerObj "G -uncharted;")
 								(sysFindObject aOwnerObj "G -uncharted;")
 								)
@@ -62,7 +71,9 @@
 								)
 							)
 						)
-
+					
+					destObj
+					)
 					(switch
 						; Finite number of missions per station
 						(ls (objGetData aOwnerObj 'remainingMissions) 1)
@@ -77,7 +88,9 @@
 							(msnDestroy gSource)
 
 						; Pick a random freighter. If we can't find one there is no mission
-						(not (setq freighterObj (random dockedFreighters)))
+						(and (not freighterObj) 
+								(not (setq freighterObj (random dockedFreighters)))
+								)
 							(msnDestroy gSource)
 
 						; Pick a random destination. If we can't find one there is no mission
@@ -87,56 +100,52 @@
 						; Otherwise setup mission
 						(block (
 							(gateMission (objMatches destObj Nil "G"))
-							pricePerContainer cargoValue escortRate escortFee
+							(escortType (objGetType freighterObj))
+							(escortData (korCalculateCargo escortType playerLevel gateMission))
+							cargoValue
 							)
-							; Figure out the price per container of the cargo (This depends on the freighter class)
-							(setq pricePerContainer (eval (objGetStaticData freighterObj "korolovContainerPrice")))
-							(if (leq pricePerContainer 0) (setq pricePerContainer 200))
-
+							
 							; Load the freighter with cargo
 							(korEmptyFreighter freighterObj)
-							(setq cargoValue (korFillFreighter freighterObj pricePerContainer))
-							;(dbgOutput "Cargo value: " cargoValue "; price per container: " pricePerContainer)
-
-							; Compute the fee that we will pay for escort based on the value of the
-							; cargo and the rate that the freighter will pay
-							(setq escortRate (objGetStaticData freighterObj "korolovEscortRate"))
-							(if (or (not escortRate) (= escortRate 0)) (setq escortRate 100))
-							(setq escortFee (/ (* escortRate cargoValue) 10000))
-
-							; Fee is not as high if we're just going to the stargate
-							(if gateMission
-								(setq escortFee (/ (* escortFee 65) 100))
-								)
-
-							; Adjust the fee randomly and round down to the nearest 50
-							(setq escortFee
-								(intRoundDown
-									(/ (* escortFee (random 75 125)) 100)
-									50
-									)
-								)
+							(setq cargoValue (korFillFreighter freighterObj (@ escortData 'pricePerContainer)))
 
 							; Mission settings
 							(msnSetData gSource 'freighterID (objGetID freighterObj))
 							(msnSetData gSource 'destID (objGetID destObj))
 
-							(msnSetData gSource 'escortType (objGetType freighterObj))
+							(msnSetData gSource 'escortType escortType)
 							(msnSetData gSource 'missionXP (if gateMission 75 100))
-							(msnSetData gSource 'cargoValue cargoValue)
-							(msnSetData gSource 'reward escortFee)
+							(msnSetData gSource 'cargoValue (@ escortData 'cargoValue))
+							(msnSetData gSource 'reward (@ escortData 'escortFee))
 
-							; Remember the destination for this transport, so we don't
+							; Remember the minimum player level to escort and the minimum
+							; player speed.
+							(msnSetData gSource 'minPlayerLevel (objGetStaticData freighterObj "korolovMinLevel"))
+							(msnSetData gSource 'minPlayerSpeed (+ (shpGetMaxSpeed freighterObj) 2))
+							
+							; Remember the mission for this transport, so we don't
 							; change it later.
+							(objSetData freighterObj 'missionID (objGetID gSource))
 							(objSetObjRefData freighterObj "korolovDest" destObj)
+
+							; Remember freighter and destination, in case they get destroyed
+							
+							(msnRegisterForEvents gSource destObj)
+							(msnRegisterForEvents gSource freighterObj)
 							)
 						)
 					)
 			</OnCreate>
-
-			<OnDeclined>
-				(msnDestroy gSource)
-			</OnDeclined>
+			
+			<OnDestroy>
+				(block (
+					(freighterObj (objGetObjByID (msnGetData gSource 'freighterID)))
+					)
+					(if freighterObj
+						(objSetData freighterObj 'missionID Nil)
+						)
+					)
+			</OnDestroy>
 
 			<OnAcceptedUndock>
 				(block (
@@ -144,7 +153,6 @@
 					(freighterObj (objGetObjByID (msnGetData gSource 'freighterID)))
 					(stationObj (objGetObjByID (msnGetProperty gSource 'ownerID)))
 					)
-					(msnRegisterForEvents gSource freighterObj)
 					(objSetObjRefData freighterObj "korolovDest" Nil)
 					(objSetData freighterObj "korolovPlayerEscort" True)
 
@@ -172,7 +180,18 @@
 			</OnSetPlayerTarget>
 
 			<OnCompleted>
-				(korEscortMissionCompleted gSource aReason gData)
+				(block (
+					(freighterObj (objGetObjByID (msnGetData gSource 'freighterID)))
+					)
+					(korEscortMissionCompleted gSource aReason gData)
+					
+					;	Clear out the mission object from this freighter so that the freighter can
+					;	get a new mission.
+					
+					(if freighterObj
+						(objSetData freighterObj 'missionID Nil)
+						)
+					)
 			</OnCompleted>
 
 			<OnReward>
@@ -181,10 +200,23 @@
 
 			<OnObjDestroyed>
 				(switch
+					;	If the mission hasn't started yet, and either the freighter or the destination
+					;	have been destroyed, then we cancel the mission.
+
+					(and (msnGetProperty gSource 'isOpen)
+							(or (= (objGetID aObjDestroyed) (msnGetData gSource 'freighterID))
+									(= (objGetID aObjDestroyed) (msnGetData gSource 'destID))
+									)
+							)
+						(msnDestroy gSource)
+
+					;	If the freighter entered a stargate, then nothing to do.
+
 					(= aDestroyReason 'enteredStargate)
 						Nil
 
-					; If the ship dies, mission fails
+					;	If the freighter has been destroyed, then the mission fails
+
 					(= (objGetID aObjDestroyed) (msnGetData gSource 'freighterID))
 						(block Nil
 							(msnSetData gSource 'playerDestroyedFreighter (and gPlayerShip (= aOrderGiver gPlayerShip)))
@@ -214,16 +246,15 @@
 						(msnSuccess gSource)
 					)
 			</OnObjEnteredGate>
-
 		</Events>
 
 		<Language>
 			<Text id="Name">
-				"Escort Korolov Freighter"
+				Escort Korolov Freighter
 			</Text>
 
 			<Text id="Summary">
-				(block (
+				(block (,
 					(ship (objGetObjByID (msnGetData gSource 'freighterID)))
 					(dest (objGetObjByID (msnGetData gSource 'destID)))
 					)
@@ -236,15 +267,37 @@
 						)
 					)
 			</Text>
-
-			<Text id="Intro">
-				(cat
-					"The command center is filled with noise as freighter captains try to find "
-					"the best escort for thier missions. A manager walks over to you: "
-					"\"Hello %name%. Do you wish to hire yourself out as a freighter escort?\""
+			<Text id="listSummary">
+				(block (
+					(ship (objGetObjByID (msnGetData gSource 'freighterID)))
+					(dest (objGetObjByID (msnGetData gSource 'destID)))
+					(destName (objGetName dest 'article))
+					(paymentValue (msnGetData gSource 'reward))
+					(payment 
+						(if (= paymentValue 0)
+							(msnTranslate gSource 'listSummary.noPayment)
+							(fmtCurrency 'credit paymentValue)
+							)
+						)
+					)
+					(switch
+						(objMatches dest Nil "G")
+							(msnTranslate gSource 'listSummary.toGate { destName:destName payment:payment })
+							
+						(msnTranslate gSource 'listSummary.roundTrip { destName:destName payment:payment })
+						)
 					)
 			</Text>
-
+			<Text id="listSummary.noPayment">N/A</Text>
+			<Text id="listSummary.roundTrip">
+				From Korolov Shipping to %destName% and back\n
+				Payment: %payment%
+			</Text>
+			<Text id="listSummary.toGate">
+				From Korolov Shipping to %destName%\n
+				Payment: %payment%
+			</Text>
+			
 			<Text id="Briefing">
 				(block (
 					(ship (objGetObjByID (msnGetData gSource 'freighterID)))

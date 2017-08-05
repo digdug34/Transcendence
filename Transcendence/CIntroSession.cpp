@@ -185,7 +185,7 @@ void CIntroSession::CreateIntroShips (DWORD dwNewShipClass, DWORD dwSovereign, C
 				&& pObj->GetCategory() == CSpaceObject::catShip
 				&& !pObj->IsDestroyed()
 				&& pObj != pShipDestroyed
-				&& !pObj->IsIntangible()
+				&& pObj->CanAttack()
 				&& !pObj->GetData(CONSTLIT("IntroController")).IsBlank())
 			{
 			if (pObj->GetSovereign() == pSovereign1)
@@ -227,7 +227,7 @@ void CIntroSession::CreateIntroShips (DWORD dwNewShipClass, DWORD dwSovereign, C
 		if (pObj
 				&& pObj->GetCategory() == CSpaceObject::catShip
 				&& !pObj->IsDestroyed()
-				&& !pObj->IsIntangible()
+				&& pObj->CanAttack()
 				&& pObj != pShipDestroyed)
 			{
 			CShip *pShip = pObj->AsShip();
@@ -321,7 +321,7 @@ void CIntroSession::CreateIntroSystem (void)
 
 		if (pObj
 				&& pObj->GetCategory() == CSpaceObject::catShip
-				&& !pObj->IsIntangible()
+				&& pObj->CanAttack()
 				&& !pObj->GetData(CONSTLIT("IntroController")).IsBlank())
 			{
 			CShip *pShip = pObj->AsShip();
@@ -431,7 +431,7 @@ ALERROR CIntroSession::CreateRandomShip (CSystem *pSystem, DWORD dwClass, CSover
 		//	We only pick from the bottom half of the list, on the assumption that
 		//	we want the higher level ships to be a surprise for the player.
 
-		int iMax = m_ShipList.GetCount() / 2;
+		int iMax = (m_bShowAllShips ? m_ShipList.GetCount() - 1 : m_ShipList.GetCount() / 2);
 		pShipClass = m_ShipList[mathRandom(0, iMax)];
 		}
 
@@ -680,7 +680,7 @@ bool CIntroSession::HandleChar (char chChar, DWORD dwKeyData)
 				CSpaceObject *pObj = pSystem->GetObject(i);
 				if (pObj 
 						&& pObj->GetCategory() == CSpaceObject::catShip
-						&& !pObj->IsIntangible())
+						&& pObj->CanAttack())
 					iCount++;
 				}
 
@@ -783,7 +783,7 @@ bool CIntroSession::HandleChar (char chChar, DWORD dwKeyData)
 				if (pObj 
 						&& pObj->GetCategory() == CSpaceObject::catShip
 						&& pObj->GetSovereign() != pCurSovereign
-						&& !pObj->IsIntangible())
+						&& pObj->CanAttack())
 					Opponents.Insert(pObj);
 				}
 
@@ -817,7 +817,7 @@ bool CIntroSession::HandleChar (char chChar, DWORD dwKeyData)
 				CSpaceObject *pObj = pSystem->GetObject((pPOV->GetIndex() + iTotalCount - (i + 1)) % iTotalCount);
 				if (pObj 
 						&& pObj->GetCategory() == CSpaceObject::catShip
-						&& !pObj->IsIntangible())
+						&& pObj->CanAttack())
 					{
 					g_pUniverse->SetPOV(pObj);
 					SetState(isShipStats);
@@ -847,7 +847,7 @@ bool CIntroSession::HandleChar (char chChar, DWORD dwKeyData)
 				CSpaceObject *pObj = pSystem->GetObject((pPOV->GetIndex() + i + 1) % iTotalCount);
 				if (pObj 
 						&& pObj->GetCategory() == CSpaceObject::catShip
-						&& !pObj->IsIntangible())
+						&& pObj->CanAttack())
 					{
 					g_pUniverse->SetPOV(pObj);
 					SetState(isShipStats);
@@ -1041,6 +1041,10 @@ ALERROR CIntroSession::OnInit (CString *retsError)
 	const CVisualPalette &VI = m_HI.GetVisuals();
 
 	SetNoCursor(true);
+
+	//	Options
+
+	m_bShowAllShips = m_Settings.GetBoolean(CGameSettings::introSpoilers);
 
 	//	Metrics
 

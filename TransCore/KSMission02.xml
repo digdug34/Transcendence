@@ -32,24 +32,33 @@
 			attributes=		"korolov, escort"
 
 			level=			"1-3"
+
+			expireTime=		"3600"
 			>
 
 		<Events>
 			<OnCreate>
 				(block (
 					(playerLevel (korGetPlayerLevel))
-					dockedFreighters freighterCount qualifyCount gateObj
-					)
 
-					(setq dockedFreighters (sysFindObject aOwnerObj "sHZ O:docked; +commonwealth; +freighter;"))
-					(setq freighterCount (count dockedFreighters))
-					(setq qualifyCount (count
+					(dockedFreighters (sysFindObject aOwnerObj "sHZ O:docked; +commonwealth; +freighter;"))
+					(freighterCount (count dockedFreighters))
+					(qualifyCount (count
 						(filter
 							dockedFreighters
 							theFreighter
-							(geq playerLevel (objGetStaticData theFreighter "korolovMinLevel"))
+							(and
+								(geq playerLevel (objGetStaticData theFreighter "korolovMinLevel"))
+								(geq (shpGetMaxSpeed gPlayerShip) (+ (shpGetMaxSpeed theFreighter) 2))
+								)
 							)
 						))
+
+					(validDestinations (sysFindObject aOwnerObj "TAF +populated; -occupation; -uncharted; -outlaws;"))
+
+					gateObj escortType
+					)
+
 
 					(switch
 						; Finite number of missions per station
@@ -68,44 +77,32 @@
 						(not (setq gateObj (random (sysFindObject aOwnerObj "GR:300; -uncharted;"))))
 							(msnDestroy gSource)
 
+						; Only allow freighters which are slower than the player ship
+						(not (setq escortType (random (filter
+								(korFreighterTypes playerLevel)
+								theType
+								(geq (shpGetMaxSpeed gPlayerShip) (+ (typGetProperty theType 'maxSpeed) 2))
+								))))
+							(msnDestroy gSource)
+
 						; If there are no freighters we're qualified to escort, or only 1-2 total, then offer mission
-						(or (= qualifyCount 0) (ls freighterCount 2) (and (ls freighterCount 3) (= (random 1 3) 1)))
-							(block (pricePerContainer cargoValue escortRate escortFee escortType)
-
-								(setq escortType (random (korFreighterTypes playerLevel)))
-								; Figure out the price per container of the cargo (This depends on the freighter class)
-								(setq pricePerContainer (eval (typGetStaticData escortType "korolovContainerPrice")))
-								(if (leq pricePerContainer 0)
-									(setq pricePerContainer 200)
-									)
-
-								; Calculate how much cargo freighter can hold
-								(setq cargoValue (* pricePerContainer
-									(/ (typGetProperty escortType 'cargoSpace) 25)
-									))
-
-								; Compute the fee that we will pay for escort based on the value of the
-								; cargo and the rate that the freighter will pay
-								(setq escortRate (typGetStaticData escortType "korolovEscortRate"))
-								(if (or (not escortRate) (= escortRate 0)) (setq escortRate 100))
-								(setq escortFee (/ (* escortRate cargoValue) 10000))
-								(setq escortFee (/ (* escortFee 65) 100))
-								; Adjust the fee randomly and round down to the nearest 50
-								(setq escortFee
-									(intRoundDown
-										(/ (* escortFee (random 75 125)) 100)
-										50
-										)
-									)
-
+						(or (= qualifyCount 0) (ls freighterCount 2) (and (ls freighterCount 3) (= (random 1 3) 1)) (not validDestinations))
+							(block (
+								(escortData (korCalculateCargo escortType playerLevel True))
+								)
 
 								; Mission settings
 								(msnSetData gSource 'gateID (objGetID gateObj))
-								(msnSetData gSource 'escortType (random (korFreighterTypes playerLevel)))
+								(msnSetData gSource 'escortType escortType)
 								(msnSetData gSource 'missionXP 75)
-								(msnSetData gSource 'pricePerContainer pricePerContainer)
-								(msnSetData gSource 'cargoValue cargoValue)
-								(msnSetData gSource 'reward escortFee)
+								(msnSetData gSource 'pricePerContainer (@ escortData 'pricePerContainer))
+								(msnSetData gSource 'cargoValue (@ escortData 'cargoValue))
+								(msnSetData gSource 'reward (@ escortData 'escortFee))
+								
+								; Remember the minimum player level to escort and the minimum
+								; player speed.
+								(msnSetData gSource 'minPlayerLevel (typGetStaticData escortType "korolovMinLevel"))
+								(msnSetData gSource 'minPlayerSpeed (+ (typGetProperty escortType 'maxSpeed) 2))
 								)
 
 						; No mission available
@@ -133,7 +130,7 @@
 						; 20% of time there are pirates waiting at the gate
 						(block Nil
 							(msnSetData gSource 'attackRoll 3)
-							(objFireEvent gSource 'CreateGatePirates)
+							(msnFireEvent gSource 'CreateGatePirates)
 							)
 						)
 					(sysAddObjTimerEvent (add gateTime 300) gSource "OnFreighterArrives")
@@ -197,7 +194,7 @@
 			<OnFreighterArrives>
 				(block (
 					(gateObj (objGetObjByID (msnGetData gSource 'gateID)))
-					(destObj (objGetObjByID (msnGetProperty gSource 'ownerID)))
+					(homeBaseObj (objGetObjByID (msnGetProperty gSource 'ownerID)))
 					freighterObj cargoValue
 					)
 					(plyMessage gPlayer "Freighter arrived!")
@@ -217,7 +214,7 @@
 						; 60% of the time we use the standard Charon transport raid
 						(= (msnGetData gSource 'attackRoll) 1)
 							(block Nil
-								(chrRaidTransport freighterObj destObj gateObj cargoValue)
+								(chrRaidTransport freighterObj homeBaseObj gateObj cargoValue)
 								(objSendMessage gPlayerShip freighterObj (msnTranslate gSource 'msgBeginEscort))
 								)
 
@@ -226,7 +223,7 @@
 							(block Nil
 								(sysAddObjTimerEvent 60 gSource 'OnPirateFollow)
 								(objSendMessage gPlayerShip freighterObj (msnTranslate gSource 'msgFollowed))
-								(chrRaidTransport freighterObj destObj gateObj (/ cargoValue 2))
+								(chrRaidTransport freighterObj homeBaseObj gateObj (/ cargoValue 2))
 								)
 
 						; 20% of time there are pirates waiting at the gate
@@ -235,8 +232,8 @@
 								(objSendMessage gPlayerShip freighterObj (msnTranslate gSource 'msgBeginEscort)))
 							(if (geq (msnGetData gSource 'attackersLeft) 5)
 								(objSendMessage gPlayerShip freighterObj (msnTranslate gSource 'msgAmbush)))
-							(objFireEvent gSource 'OrderAttackFreighter)
-							(chrRaidTransport freighterObj destObj gateObj (/ cargoValue 2))
+							(msnFireEvent gSource 'OrderAttackFreighter)
+							(chrRaidTransport freighterObj homeBaseObj gateObj (/ cargoValue 2))
 							)
 						)
 					)
@@ -244,8 +241,8 @@
 
 			<OnPirateFollow>
 				(block Nil
-					(objFireEvent gSource 'CreateGatePirates)
-					(objFireEvent gSource 'OrderAttackFreighter)
+					(msnFireEvent gSource 'CreateGatePirates)
+					(msnFireEvent gSource 'OrderAttackFreighter)
 					)
 			</OnPirateFollow>
 
@@ -313,13 +310,24 @@
 						)
 					)
 			</Text>
-
-			<Text id="Intro">
-				(cat
-					"The command center is quiet as you enter. Most of the freighter captains "
-					"appear to be out on missions. A manager walks over to you: "
-					"\"Hello %name%. Do you wish to hire yourself out as a freighter escort?\""
+			<Text id="listSummary">
+				(block (
+					(gate (objGetObjByID (msnGetData gSource 'gateID)))
+					(destName (objGetName gate 'article))
+					(paymentValue (msnGetData gSource 'reward))
+					(payment 
+						(if (= paymentValue 0)
+							(msnTranslate gSource 'listSummary.noPayment)
+							(fmtCurrency 'credit paymentValue)
+							)
+						)
 					)
+					(msnTranslate gSource 'listSummary.fromGate { destName:destName payment:payment })
+					)
+			</Text>
+			<Text id="listSummary.fromGate">
+				From %destName% to Korolov Shipping\n
+				Payment: %payment%
 			</Text>
 
 			<Text id="Briefing">
@@ -340,7 +348,7 @@
 			</Text>
 
 			<Text id="AcceptReply">
-				"\"Great! The freighter will be arriving in system shorted so don't delay. Good luck!\""
+				"\"Great! The freighter will be arriving in system shortly so don't delay. Good luck!\""
 			</Text>
 
 			<Text id="DeclineReply">
@@ -381,7 +389,7 @@
 					)
 					(random (list
 						"Help! The pirates are right behind us"
-						(cat "Mayday, Mayday, Mayday. " ship " under attack by pirates")
+						(cat "Mayday mayday mayday. " ship " under attack by pirates")
 						))
 					)
 			</Text>

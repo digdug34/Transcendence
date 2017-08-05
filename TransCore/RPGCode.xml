@@ -253,6 +253,15 @@
 								visible: Nil
 								}
 				
+						;	If the station only installs as part of upgrade, then say so.
+
+						(objGetProperty dockObj 'installDeviceUpgradeOnly)
+							{
+								visible: True
+								enabled: Nil
+								desc: (scrTranslate gScreen "actionInstall:upgradeInstallOnly" { category:(@ options 'category) })
+								}
+							
 						;	If no items to install, action is disabled
 					
 						(not (setq allItems (objGetItems shipObj (@ options 'criteria))))
@@ -276,25 +285,9 @@
 										(scrTranslate gScreen "actionInstall:noCompatibleItemInCargo" { category:(@ options 'category) })
 										)
 								}
-								
-						;	If none of the items in our cargo hold can be installed because
-						;	the station requires an upgrade (purchase) then we show an error.
-					
-						(not (filter allItems theItemToInstall
-								(block (
-									(installItemStatus (objGetItemProperty dockObj theItemToInstall 'installItemStatus))
-									)
-									(and (@ installItemStatus 'canInstall)
-										(not (@ installItemStatus 'upgradeInstallOnly))
-										)
-									)
-								))
-							{
-								visible: True
-								enabled: Nil
-								desc: (scrTranslate gScreen "actionInstall:upgradeInstallOnly" { category:(@ options 'category) })
-								}
 							
+						;	We might be able to install something
+
 						{
 							visible: True
 							enabled: True
@@ -1934,7 +1927,15 @@
 				))
 
 			(setq rpgPageCount (lambda (textDesc)
-				(if (isatom textDesc) 1 (count textDesc))
+				(switch
+					(isatom textDesc) 
+						1
+
+					(= (typeOf textDesc) 'struct)
+						1
+						
+					(count textDesc)
+					)
 				))
 
 			(setq rpgPageDesc (lambda (textDesc pageNo)
@@ -2045,7 +2046,10 @@
 					;	Show the appropriate page
 
 					(if (@ pageDesc 'textID)
-						(scrSetDescTranslate theScreen (@ pageDesc 'textID))
+						(scrSetDesc theScreen (or
+							(msnTranslate (@ options 'missionObj) (@ pageDesc 'textID) (or (@ pageDesc 'data) gData))
+							(scrTranslate theScreen (@ pageDesc 'textID) (or (@ pageDesc 'data) gData))
+							))
 						(scrSetDesc theScreen (@ pageDesc 'desc))
 						)
 					
@@ -2062,7 +2066,10 @@
 								)
 							(setq actions (list
 								{
-									label: (or (scrTranslate theScreen 'actionUndock) (typTranslate &dsDockScreenBase; 'actionUndock))
+									label: (or 
+										(scrTranslate theScreen 'actionUndock) 
+										(typTranslate &dsDockScreenBase; 'actionUndock)
+										)
 									code: (@ pageDesc 'acceptCode)
 									nextPage: 'missionAccept
 									}
@@ -2079,7 +2086,7 @@
 								{
 									label: (or (@ pageDesc 'acceptLabel)
 										(msnTranslate (@ options 'missionObj) 'AcceptLabel)
-										(typTranslate &dsRPGMission; 'actionAccept)
+										(typTranslate &dsDockScreenBase; 'actionAccept)
 										)
 									code: (@ pageDesc 'acceptCode)
 									nextPage: 'missionAccept
@@ -2087,7 +2094,7 @@
 								{
 									label: (or (@ pageDesc 'declineLabel)
 										(msnTranslate (@ options 'missionObj) 'DeclineLabel)
-										(typTranslate &dsRPGMission; 'actionDecline)
+										(typTranslate &dsDockScreenBase; 'actionDecline)
 										)
 									code: (@ pageDesc 'declineCode)
 									nextPage: 'missionDecline
@@ -2099,7 +2106,12 @@
 						
 						(!= (typeof actions) 'list)
 							(setq actions (list {
-								label: (or (@ pageDesc 'label) (@ pageDesc 'nextLabel) (scrTranslate theScreen (@ pageDesc 'nextLabelID)))
+								label: (or 
+									(@ pageDesc 'label) 
+									(@ pageDesc 'nextLabel) 
+									(msnTranslate (@ options 'missionObj) (@ pageDesc 'labelID))
+									(scrTranslate theScreen (@ pageDesc 'labelID))
+									)
 								nextPage: (@ pageDesc 'nextPage)
 								code: (or (@ pageDesc 'code) (@ pageDesc 'nextCode))
 								}))
@@ -2120,6 +2132,11 @@
 								(switch
 									(@ actionDesc 'label)
 										(@ actionDesc 'label)
+
+									(@ actionDesc 'labelID)
+										(or (msnTranslate (@ options 'missionObj) (@ actionDesc 'labelID))
+												(scrTranslate theScreen (@ actionDesc 'labelID))
+												)
 										
 									;	If we're continuing, and at the last page, then we
 									;	use the [D]one label.
@@ -2160,7 +2177,7 @@
 									Nil
 									)
 								)
-								
+							(actionCode (@ actionDesc 'code))
 							(nextPageNo Nil)
 							)
 							
@@ -2196,9 +2213,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												(scrSetData theScreen 'curPage Nil)
 												(if (@ options 'onExitPane)
@@ -2215,9 +2230,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												(scrSetData theScreen 'curPage (+ pageNo 1))
 												(scrShowPane theScreen (@ (scrGetScreen theScreen) 'pane))
@@ -2229,9 +2242,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												(scrExitScreen theScreen)
 												)
@@ -2242,9 +2253,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												(scrExitScreen theScreen 'forceUndock)
 												)
@@ -2255,9 +2264,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												((@ options 'onAcceptDecline) theScreen 'accept pageDesc options)
 												)
@@ -2268,9 +2275,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												((@ options 'onAcceptDecline) theScreen 'decline pageDesc options)
 												)
@@ -2283,9 +2288,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												(scrSetData theScreen 'curPage nextPageNo)
 												(scrShowPane theScreen (@ (scrGetScreen theScreen) 'pane))
@@ -2299,9 +2302,7 @@
 									(scrAddAction theScreen actionID Nil actionLabel Nil actionAccel
 										(lambda ()
 											(block Nil
-												(if (@ actionDesc 'code)
-													((@ actionDesc 'code))
-													)
+												(if actionCode (actionCode))
 													
 												((@ options 'onNavigate) theScreen nextPage pageDesc options)
 												)

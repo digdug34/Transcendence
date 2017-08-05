@@ -278,7 +278,7 @@ static PRIMITIVEPROCDEF g_Extensions[] =
 			NULL,	PPFLAG_SIDEEFFECTS, },
 
 		{	"scrSetActionDesc",				fnScrSet,		FN_SCR_ACTION_DESC,
-			"(scrSetActionDesc screen actionID descID) -> True/Nil",
+			"(scrSetActionDesc screen actionID text) -> True/Nil",
 			"ivv",		PPFLAG_SIDEEFFECTS, },
 
 		{	"scrSetActionLabel",			fnScrSet,		FN_SCR_ACTION_LABEL,
@@ -354,6 +354,7 @@ static PRIMITIVEPROCDEF g_Extensions[] =
 			"options:\n\n"
 
 			"   'noOrderTransfer\n"
+			"   'oldShipWaits\n"
 				,
 			"ii*",	PPFLAG_SIDEEFFECTS,	},
 
@@ -1135,6 +1136,7 @@ ICCItem *fnPlySet (CEvalContext *pEvalCtx, ICCItem *pArgs, DWORD dwData)
 			if (pOptions)
 				{
 				Options.bNoOrderTransfer = pOptions->GetBooleanAt(CONSTLIT("noOrderTransfer"));
+				Options.bOldShipWaits = pOptions->GetBooleanAt(CONSTLIT("oldShipWaits"));
 				}
 
 			//	Change ships
